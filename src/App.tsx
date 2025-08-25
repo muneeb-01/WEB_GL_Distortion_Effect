@@ -24,10 +24,10 @@ type ParticleType = {
 const config: ConfigType = {
   logoPath: "/logo.png",
   logoSize: 350,
-  logoColor: "#404040",
+  logoColor: "#ffffff",
   canvasBg: "#141414",
   distortionRadius: 250,
-  forceStrength: 0.0035,
+  forceStrength: 0.0735,
   maxDisplacement: 150,
   returnForce: 0.085,
 };
