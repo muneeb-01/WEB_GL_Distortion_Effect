@@ -46,10 +46,8 @@ const App: React.FC = () => {
   const colorArray = useRef<Float32Array | null>(null);
   const positionBuffer = useRef<WebGLBuffer | null>(null);
   const colorBuffer = useRef<WebGLBuffer | null>(null);
-  const mouse: MousePosition = { x: 0, y: 0 };
-  const animationCount = { current: 0 };
-
-  console.log("MyComponent rendered");
+  const mouse = useRef<MousePosition>({ x: 0, y: 0 });
+  const animationCount = useRef<number>(0);
   if (window.innerWidth < 600) {
     config.logoSize = 350;
   } else {
@@ -62,36 +60,67 @@ const App: React.FC = () => {
       console.error("Canvas element is not available");
       return;
     }
-    const gl = canvas.getContext("webgl", {
-      alpha: true,
-      depth: false,
-      stencil: false,
-      antialias: true,
-      powerPreference: "high-performance",
-      premultipliedAlpha: false,
-    });
-
-    if (!gl) {
-      console.error(
-        "WebGL is not supported or canvas context could not be initialized"
-      );
-      return;
+    let gl: WebGLRenderingContext | null;
+    try {
+      gl = setUpGL(canvas);
+      loadLogo();
+      setupEvents();
+    } catch (error) {
+      console.error("WebGL setup failed:", error);
     }
+    function setUpGL(canvas: HTMLCanvasElement): WebGLRenderingContext | null {
+      const gl = canvas.getContext("webgl", {
+        alpha: true,
+        depth: false,
+        stencil: false,
+        antialias: true,
+        powerPreference: "high-performance",
+        premultipliedAlpha: false,
+      });
 
-    glRef.current = gl;
+      if (!gl) {
+        console.error(
+          "WebGL is not supported or canvas context could not be initialized"
+        );
+        return null;
+      }
 
-    // Set canvas dimensions to match its CSS size
-    const dpr: number = window.devicePixelRatio || 1;
-    canvas.width = window.innerWidth * dpr;
-    canvas.height = window.innerHeight * dpr;
-    canvas.style.width = `${window.innerWidth}px`;
-    canvas.style.height = `${window.innerHeight}px`;
+      glRef.current = gl;
 
-    gl.enable(gl.BLEND);
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+      // Set canvas dimensions to match its CSS size
+      const dpr: number = window.devicePixelRatio || 1;
+      canvas.width = window.innerWidth * dpr;
+      canvas.height = window.innerHeight * dpr;
+      canvas.style.width = `${window.innerWidth}px`;
+      canvas.style.height = `${window.innerHeight}px`;
 
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
+      // Compile vertex and fragment shaders
+      const vs = compileShader(gl, gl.VERTEX_SHADER, vertexShader);
+      const fs = compileShader(gl, gl.FRAGMENT_SHADER, fragmentShader);
+
+      // Create and link the WebGL program
+      const program = gl.createProgram();
+      if (!program) {
+        throw new Error("Failed to create WebGL program");
+      }
+      gl.attachShader(program, vs);
+      gl.attachShader(program, fs);
+      gl.linkProgram(program);
+      programRef.current = program;
+      if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+        console.error("Program link error:", gl.getProgramInfoLog(program));
+      }
+      return gl;
+    }
     // Compile shader function with error handling
-    function compileShader(type: number, source: string): WebGLShader {
+    function compileShader(
+      gl: WebGLRenderingContext,
+      type: number,
+      source: string
+    ): WebGLShader {
       if (!gl) {
         throw new Error("WebGL context is not available");
       }
@@ -112,7 +141,6 @@ const App: React.FC = () => {
       }
       return shader;
     }
-
     function loadLogo() {
       const image = new Image();
       image.onload = function () {
@@ -136,7 +164,6 @@ const App: React.FC = () => {
       };
       image.src = config.logoPath;
     }
-
     function createParticles(pixels: Uint8ClampedArray | undefined) {
       if (!canvas || !pixels) throw new Error("Canvas is not defined");
 
@@ -193,7 +220,6 @@ const App: React.FC = () => {
       createBuffers();
       animate();
     }
-
     function createBuffers() {
       if (!gl) throw new Error("Gl is not-defined");
 
@@ -205,7 +231,6 @@ const App: React.FC = () => {
       gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer.current);
       gl.bufferData(gl.ARRAY_BUFFER, colorArray.current, gl.STATIC_DRAW);
     }
-
     function animate() {
       const hasMovement: true | false = animationCount.current > 0;
       if (hasMovement) {
@@ -214,7 +239,6 @@ const App: React.FC = () => {
       render();
       requestAnimationFrame(animate);
     }
-
     function updatePhysics() {
       if (animationCount.current <= 0) return;
 
@@ -227,8 +251,8 @@ const App: React.FC = () => {
         const currentX = positionArray.current[i * 2];
         const currentY = positionArray.current[i * 2 + 1];
 
-        const deltaX = mouse.x - currentX;
-        const deltaY = mouse.y - currentY;
+        const deltaX = mouse.current.x - currentX;
+        const deltaY = mouse.current.y - currentY;
         const distanceSqured = deltaX * deltaX + deltaY * deltaY;
 
         if (distanceSqured < radiusSquared && distanceSqured > 0) {
@@ -284,7 +308,6 @@ const App: React.FC = () => {
         gl.bufferSubData(gl.ARRAY_BUFFER, 0, positionArray.current);
       }
     }
-
     function render() {
       if (!gl || !canvas || !programRef.current)
         throw new Error("Gl is not defined.");
@@ -328,71 +351,27 @@ const App: React.FC = () => {
 
       gl.drawArrays(gl.POINTS, 0, particles.current.length);
     }
-
     function setupEvents() {
       if (!canvas) throw new Error("Canvas is not defined");
       const updateMouse = throttle((e: MouseEvent) => {
         const rect = canvas.getBoundingClientRect();
         const dpr = window.devicePixelRatio || 1;
 
-        mouse.x = (e.clientX - rect.left) * dpr;
-        mouse.y = (e.clientY - rect.top) * dpr;
+        mouse.current.x = (e.clientX - rect.left) * dpr;
+        mouse.current.y = (e.clientY - rect.top) * dpr;
         animationCount.current = 400; // Reduced duration
       }, 6); // ~60 FPS
       document.addEventListener("mousemove", updateMouse);
     }
-
-    try {
-      // Compile vertex and fragment shaders
-      const vs = compileShader(gl.VERTEX_SHADER, vertexShader);
-      const fs = compileShader(gl.FRAGMENT_SHADER, fragmentShader);
-
-      // Create and link the WebGL program
-      const program = gl.createProgram();
-      if (!program) {
-        throw new Error("Failed to create WebGL program");
-      }
-      gl.attachShader(program, vs);
-      gl.attachShader(program, fs);
-      gl.linkProgram(program);
-      programRef.current = program;
-      if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-        console.error("Program link error:", gl.getProgramInfoLog(program));
-      }
-      loadLogo();
-      setupEvents();
-    } catch (error) {
-      console.error("WebGL setup failed:", error);
-    }
-
-    window.addEventListener("resize", () => {
-      const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
-      canvas.width = Math.min(window.innerWidth * dpr, 1920);
-      canvas.height = Math.min(window.innerHeight * dpr, 1080);
-      canvas.style.width = `${Math.min(window.innerWidth, 1920 / dpr)}px`;
-      canvas.style.height = `${Math.min(window.innerHeight, 1080 / dpr)}px`;
-      gl.viewport(0, 0, canvas.width, canvas.height);
-      if (!positionArray.current) return;
-      if (particles.current.length > 0) {
-        const centerX = canvas.width / 2;
-        const centerY = canvas.height / 2;
-        const dim = Math.sqrt(particles.current.length);
-
-        for (let i = 0; i < particles.current.length; i++) {
-          const row = Math.floor(i / dim);
-          const col = i % dim;
-          const repositionX = centerX + (col - dim / 2) * 1.0;
-          const repositionY = centerY + (row - dim / 2) * 1.0;
-          particles.current[i].originalX = repositionX;
-          particles.current[i].originalY = repositionY;
-          positionArray.current[i * 2] = repositionX;
-          positionArray.current[i * 2 + 1] = repositionY;
-        }
-
-        gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer.current);
-        gl.bufferSubData(gl.ARRAY_BUFFER, 0, positionArray.current);
-      }
-    });
+    (function resize() {
+      let resizeTimeout: number;
+      window.addEventListener("resize", () => {
+        clearTimeout(resizeTimeout); // Prevent multiple reloads
+        resizeTimeout = setTimeout(() => {
+          location.reload();
+        }, 50);
+      });
+    })();
 
     // Cleanup on component unmount
     return () => {
